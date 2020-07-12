@@ -1,2 +1,2 @@
-# PyProxy
+# PyProxyS
 Python Proxy Server
