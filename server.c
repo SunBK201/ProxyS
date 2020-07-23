@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
 #include <netdb.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -20,7 +21,8 @@ int remote_socket;
 
 char remote_host[128];
 int remote_port;
-int local_port;
+char client_host[128];
+int client_port;
 
 char *client_buffer;
 
@@ -112,17 +114,23 @@ int read_from_client(int client_socket)
 
 int connect_remote()
 {
-    struct sockaddr_in remote_server_addr;
+    struct sockaddr_in remote_server_addr, *temp;
     struct hostent *remote;
     int socket;
+    struct addrinfo *remote_addr_info;
+    char rem__add[128];
 
     socket = Socket(AF_INET, SOCK_STREAM, 0);
 
     remote = gethostbyname(remote_host);
+    //getaddrinfo(remote_host, NULL, NULL, &remote_addr_info);
+    //temp = (struct sockaddr_in*)((*remote_addr_info).ai_addr);
 
     bzero(&remote_server_addr, sizeof(remote_server_addr));
     remote_server_addr.sin_family = AF_INET;
+    //inet_ntop(AF_INET, &(*temp).sin_addr, rem__add, sizeof(rem__add));
     memcpy(&remote_server_addr.sin_addr.s_addr, remote->h_addr, remote->h_length);
+    //memcpy(&remote_server_addr.sin_addr.s_addr, rem__add, sizeof(rem__add));
     remote_server_addr.sin_port = htons(remote_port);
 
     Connect(socket, (struct sockaddr *)&remote_server_addr, sizeof(remote_server_addr));
@@ -137,6 +145,14 @@ void forward_data(int source_socket, int destination_socket)
 
     while ((n = recv(source_socket, buffer, MAX_BUFFER, 0)) > 0)
     {
+        if(source_socket == remote_socket)
+        {
+            printf("remote[%s:%d] data to server and send to client[%s:%d]\n", remote_host, remote_port, client_host, client_port);
+        }
+        if(source_socket == client_socket)
+        {
+            printf("client[%s:%d] data to server and send to remote[%s:%d]\n", client_host, client_port, remote_host, remote_port);
+        }
         send(destination_socket, buffer, n, 0);
     }
 
@@ -149,8 +165,6 @@ void handle_client(int client_socket, struct sockaddr_in client_addr)
 {
     read_from_client(client_socket);
 
-    printf("%s\n", client_buffer);
-
     extract_host(client_buffer);
 
     remote_socket = connect_remote();
@@ -160,8 +174,20 @@ void handle_client(int client_socket, struct sockaddr_in client_addr)
 
         if (strlen(client_buffer) > 0)
         {
+            /*
+            char *p = strstr(client_buffer, "CONNECT");
+            printf("%s\n", client_buffer);
+            if (p)
+            {
+                str_rep(client_buffer, client_buffer, "CONNECT", "GET");
+                printf("%s\n", client_buffer);
+            }
+            */
+
+            printf("send header to %s:%d from client %s:%d\n", remote_host, remote_port, client_host, client_port);
             send(remote_socket, client_buffer, strlen(client_buffer), 0);
         }
+        
         forward_data(client_socket, remote_socket);
         exit(0);
     }
@@ -185,6 +211,9 @@ void server_deal()
     while (1)
     {
         client_socket = Accept(server_socket, (struct sockaddr *)&client_addr, &addrlen);
+
+        strcpy(client_host, inet_ntop(AF_INET, &client_addr.sin_addr, str, sizeof(str)));
+        client_port = ntohs(client_addr.sin_port);
 
         printf("received from %s at PORT %d\n",
                 inet_ntop(AF_INET, &client_addr.sin_addr, str, sizeof(str)),
