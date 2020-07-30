@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include "util.h"
 
-#define DEBUG
+//#define DEBUG
 
 #define SERV_PORT 23333
 #define REMOTE_IP "210.44.144.3"
@@ -32,6 +32,15 @@ int remote_port;
 char client_host[128];
 int client_port;
 
+struct http_request
+{
+    char *method;
+    char *url;
+    char *version;
+    struct Map *headers;
+    char *body;
+};
+
 int connect_remote();
 int creat_server_socket(int port);
 void forward_data(int source_socket, int destination_socket);
@@ -41,7 +50,7 @@ void sigchld_handler(int signal);
 
 int creat_server_socket(int port)
 {
-    int server_socket, optval;
+    int server_socket, optval = 1;
     struct sockaddr_in server_addr;
 
     server_socket = Socket(AF_INET, SOCK_STREAM, 0);
@@ -64,23 +73,6 @@ int creat_server_socket(int port)
     return server_socket;
 }
 
-void setnonblocking(int sock)
-{
-    int opts;
-    opts = fcntl(sock, F_GETFL);
-    if (opts < 0)
-    {
-        perror("fcntl(sock,GETFL)");
-        exit(1);
-    }
-    opts = opts | O_NONBLOCK;
-    if (fcntl(sock, F_SETFL, opts) < 0)
-    {
-        perror("fcntl(sock,SETFL,opts)");
-        exit(1);
-    }
-}
-
 int connect_remote()
 {
     struct sockaddr_in remote_server_addr;
@@ -98,28 +90,122 @@ int connect_remote()
     return socket;
 }
 
+void parse_client_request(char *buffer, int len, struct http_request *request)
+{
+    if (len == 0)
+    {
+        return;
+    }
+
+    char *data = (char *)malloc(len);
+    memcpy(data, buffer, len);
+    char *start = data;
+    char *method = start;
+    char *url = 0;
+    char *version = 0;
+    for (; *start && *start != '\n' && *start != '\r'; start++)
+    {
+        if (*start == ' ')
+        {
+            if (url == 0)
+            {
+                url = start + 1;
+            }
+            else
+            {
+                version = start + 1;
+            }
+            *start = '\0';
+        }
+    }
+    *start = '\0';
+    start++;
+    request->method = method;
+    request->url = url;
+    request->version = version;
+
+    start++;
+    char *line = start;
+    char *key;
+    char *value;
+    while (*line != '\r' && *line != '\0')
+    {
+        char *key;
+        char *value;
+        while (*(start++) != ':')
+            ;
+        *(start - 1) = '\0';
+        key = line;
+        value = start + 1;
+        while (start++, *start != '\0' && *start != '\r')
+            ;
+        *start++ = '\0';
+        start++;
+
+        line = start;
+        struct Item *item = newItem(key, value);
+        mapPush(request->headers, item);
+    }
+
+    if (*line == '\r')
+    {
+        char *len_str = mapGet(request->headers, "Content-Length");
+        if (len_str != NULL)
+        {
+            int len = atoi(len_str);
+            line = line + 2;
+            *(line + len) = '\0';
+            request->body = line;
+        }
+    }
+    //mapPrint(request->headers);
+}
+
 void forward_data(int source_socket, int destination_socket)
 {
     char buffer[MAX_BUFFER];
+    struct http_request request;
     int n;
 
     while ((n = recv(source_socket, buffer, MAX_BUFFER, 0)) > 0)
     {
 #ifdef DEBUG
-        if (source_socket == remote_socket)
-        {
-            printf("remote[%s:%d] send to client[%s:%d], size=%d\n", REMOTE_IP, REMOTE_PORT, client_host, client_port, n);
-        }
         if (source_socket == client_socket)
         {
             printf("--------------------------------------------------------------\n");
-            printf("client[%s:%d] send to remote[%s:%d], size=%d, client request:\n%s\n", client_host, client_port, REMOTE_IP, REMOTE_PORT, n, buffer);
+            //printf("client[%s:%d] send to remote[%s:%d], size=%d, client request:\n%s\n", client_host, client_port, REMOTE_IP, REMOTE_PORT, n, buffer);
+            printf("client[%s:%d] send to remote[%s:%d], size=%d\n", client_host, client_port, REMOTE_IP, REMOTE_PORT, n);
             printf("--------------------------------------------------------------\n");
         }
+        if (source_socket == remote_socket)
+        {
+            //printf("remote[%s:%d] send to client[%s:%d], size=%d\n", REMOTE_IP, REMOTE_PORT, client_host, client_port, n);
+        }
 #endif
+        if (source_socket == client_socket)
+        {
+            if (request.headers == NULL)
+            {
+                struct Map headers;
+                request.headers = &headers;
+            }
+            initMap(request.headers);
+            parse_client_request(buffer, n, &request);
+            printf("[%s:%d][%s][%s][%s]\n", client_host, client_port, request.method, request.url, request.version);
+#ifdef DEBUG
+            mapPrint(request.headers);
+            if(request.body != NULL)
+            {
+                printf("%s\n", request.body);
+            }
+#endif
+        }
         send(destination_socket, buffer, n, 0);
     }
-
+    if (source_socket == client_socket)
+    {
+        releaseMap(request.headers);
+    }
     shutdown(destination_socket, SHUT_RDWR);
     shutdown(source_socket, SHUT_RDWR);
 }
