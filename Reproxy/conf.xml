@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Appconf>
+    <server>
+        <localport>23333</localport>
+        <remotehost>47.94.42.154</remotehost>
+        <remoteport>80</remoteport>
+    </server>
+</Appconf>

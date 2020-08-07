@@ -12,7 +12,7 @@ TARGET = server
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(LD) -o $@ $^
+	$(LD) -o $@ $^ -I /usr/include/libxml2/ -l xml2
 
 %.o:%.c
 	$(CC) -c $^

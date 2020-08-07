@@ -12,16 +12,19 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include "util.h"
+#include "loadconf.h"
 
 //#define DEBUG
-
-#define SERV_PORT 23333
-#define REMOTE_IP "210.44.144.3"
+#define DEFAULT_CONF_FILE "conf.xml"
+//#define SERV_PORT 23333
+//#define REMOTE_IP "210.44.144.3"
 //#define REMOTE_IP "172.25.64.1"
 //#define REMOTE_IP "47.94.42.154"
-#define REMOTE_PORT 80
+//#define REMOTE_PORT 80
 
 #define MAX_BUFFER 8192
+
+struct config CONF;
 
 int server_socket;
 int client_socket;
@@ -42,13 +45,14 @@ struct http_request
 };
 
 int connect_remote();
-int creat_server_socket(int port);
+int creat_server_socket();
 void forward_data(int source_socket, int destination_socket);
 void handle_client(struct sockaddr_in client_addr);
 void server_deal();
 void sigchld_handler(int signal);
+int loadconf();
 
-int creat_server_socket(int port)
+int creat_server_socket()
 {
     int server_socket, optval = 1;
     struct sockaddr_in server_addr;
@@ -63,7 +67,7 @@ int creat_server_socket(int port)
 
     bzero(&server_addr, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
+    server_addr.sin_port = htons(CONF.LOCALPORT);
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     Bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr));
@@ -79,12 +83,13 @@ int connect_remote()
     int socket;
 
     socket = Socket(AF_INET, SOCK_STREAM, 0);
-
+    
     bzero(&remote_server_addr, sizeof(remote_server_addr));
     remote_server_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, REMOTE_IP, &remote_server_addr.sin_addr);
-    remote_server_addr.sin_port = htons(REMOTE_PORT);
+    inet_pton(AF_INET, CONF.REMOTE_HOST, &remote_server_addr.sin_addr);
+    remote_server_addr.sin_port = htons(CONF.REMOTE_PORT);
 
+    //printf("%s,%d\n", remote_server_addr.sin_addr, remote_server_addr.sin_port);
     Connect(socket, (struct sockaddr *)&remote_server_addr, sizeof(remote_server_addr));
 
     return socket;
@@ -273,11 +278,25 @@ void sigchld_handler(int signal)
     }
 }
 
+int loadconf(){
+    char *conf_file = DEFAULT_CONF_FILE;
+
+    if (parse_conf_file(conf_file, &CONF) != 0)
+    {
+        fprintf(stderr, "Failed to load conf.\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
+    loadconf();
+
     signal(SIGCHLD, sigchld_handler);
 
-    server_socket = creat_server_socket(SERV_PORT);
+    server_socket = creat_server_socket();
 
     server_deal();
 
