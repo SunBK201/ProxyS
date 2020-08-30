@@ -270,12 +270,15 @@ void server_deal()
 
 void sigchld_handler(int signal)
 {
-    while (waitpid(-1, NULL, WNOHANG) > 0)
+    pid_t pid;
+    int stat;
+    while ((pid = waitpid(-1, NULL, WNOHANG)) > 0)
     {
 #ifdef DEBUG
-        printf("destroy process\n");
+        printf("destroy process %d\n", pid);
 #endif
     }
+    return;
 }
 
 int loadconf(){
